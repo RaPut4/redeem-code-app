@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Penukaran Kode</title>
+    <!-- Memuat Tailwind CSS untuk styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Mengatur font dasar dan memastikan tinggi penuh untuk tata letak yang baik */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        /* Styling untuk modal/popup pesan */
+        .modal {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+        .modal-active {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        .modal-inactive {
+            opacity: 0;
+            transform: translateY(-20px);
+            pointer-events: none;
+        }
+        /* Animasi loading spinner */
+        .spinner {
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Kontainer Utama Aplikasi -->
+<div id="app-container" class="w-full max-w-md mx-auto p-4 md:p-8 bg-white shadow-2xl rounded-xl">
+    <h1 class="text-3xl font-extrabold text-center text-indigo-700 mb-6">Redeem Code by RaPut4 STORE</h1>
+    <p class="text-center text-gray-500 mb-8">Masukan code yang anda miliki.</p>
+
+    <!-- Formulir Input Kode -->
+    <div class="space-y-4">
+        <label for="redeemCode" class="block text-sm font-medium text-gray-700">Kode Penukaran</label>
+        <input type="text" id="redeemCode" placeholder="MASUKAN CODE"
+               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-lg uppercase tracking-wider transition duration-150 ease-in-out shadow-sm"
+               maxlength="20">
+        
+        <button id="redeemButton"
+                class="w-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed">
+            <span id="buttonText">Redeem Now!</span>
+            <div id="loadingSpinner" class="spinner h-5 w-5 border-2 border-white ml-2 hidden"></div>
+        </button>
+    </div>
+
+    <!-- Area Hasil Penukaran -->
+    <div id="resultArea" class="mt-8 p-4 bg-gray-100 border-l-4 border-gray-300 rounded-lg hidden">
+        <h3 class="text-xl font-semibold text-gray-800 mb-2">Status Penukaran:</h3>
+        <p id="resultMessage" class="text-gray-600"></p>
+    </div>
+</div>
+
+<!-- Modal Kustom untuk Notifikasi (Menggantikan alert()) -->
+<div id="customModal" class="modal modal-inactive fixed inset-0 z-50 flex items-center justify-center p-4" aria-modal="true" role="dialog">
+    <div class="absolute inset-0 bg-black bg-opacity-50 transition-opacity"></div>
+    <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm relative z-10 transition-transform">
+        <h4 id="modalTitle" class="text-xl font-bold mb-3 text-center text-gray-800"></h4>
+        <p id="modalMessage" class="text-gray-600 mb-4 text-center"></p>
+        <button id="closeModalButton" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition duration-150">Tutup</button>
+    </div>
+</div>
+
+<script>
+    // --- Logika Aplikasi Penukaran Kode (JavaScript) ---
+
+    // Definisi Daftar Kode Valid dan Hadiahnya
+    // Dalam aplikasi nyata, ini akan disimpan di database (misalnya Firebase Firestore)
+    const VALID_CODES = {
+        "JEV74GRN46B": { reward: "SPOTIFY PREMIUM GRATIS. Email: sjuegrvh@gmail.com|masuk123", used: false, maxUses: 1 },
+        "BR72TR7WI": { reward: "SPOTIFY PREMIUM GRATIS. Email: sjuegrvh@gmail.com|masuk123", used: false, maxUses: 1 },
+        "82GFE8YHDN": { reward: "SPOTIFY PREMIUM GRATIS. Email: sjuegrvh@gmail.com|masuk123", used: true, maxUses: 1 }, // Contoh kode yang sudah digunakan
+        "9EHR72NDBF": { reward: "SPOTIFY PREMIUM GRATIS. Email: sjuegrvh@gmail.com|masuk123", used: false, maxUses: 1000 }, // Contoh kode multi-guna
+    };
+
+    // Elemen DOM
+    const redeemCodeInput = document.getElementById('redeemCode');
+    const redeemButton = document.getElementById('redeemButton');
+    const buttonText = document.getElementById('buttonText');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const resultArea = document.getElementById('resultArea');
+    const resultMessage = document.getElementById('resultMessage');
+    const customModal = document.getElementById('customModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalMessage = document.getElementById('modalMessage');
+    const closeModalButton = document.getElementById('closeModalButton');
+
+    /**
+     * Menampilkan modal notifikasi kustom.
+     * @param {string} title Judul modal.
+     * @param {string} message Pesan yang ditampilkan.
+     * @param {string} type Tipe pesan ('success', 'error', 'info').
+     */
+    function showModal(title, message, type = 'info') {
+        modalTitle.textContent = title;
+        modalMessage.textContent = message;
+
+        // Reset warna title
+        modalTitle.classList.remove('text-green-600', 'text-red-600', 'text-blue-600');
+        
+        // Atur warna title berdasarkan tipe
+        if (type === 'success') {
+            modalTitle.classList.add('text-green-600');
+        } else if (type === 'error') {
+            modalTitle.classList.add('text-red-600');
+        } else {
+            modalTitle.classList.add('text-blue-600');
+        }
+
+        customModal.classList.remove('modal-inactive');
+        customModal.classList.add('modal-active');
+    }
+
+    /**
+     * Menyembunyikan modal notifikasi kustom.
+     */
+    function hideModal() {
+        customModal.classList.remove('modal-active');
+        customModal.classList.add('modal-inactive');
+    }
+
+    // Event listener untuk tombol tutup modal dan overlay
+    closeModalButton.addEventListener('click', hideModal);
+    customModal.addEventListener('click', (e) => {
+        // Tutup jika mengklik di luar kotak modal
+        if (e.target === customModal.querySelector('div:first-child')) {
+            hideModal();
+        }
+    });
+
+    /**
+     * Memperbarui status tombol selama proses penukaran.
+     * @param {boolean} isLoading Status loading.
+     */
+    function updateButtonState(isLoading) {
+        redeemButton.disabled = isLoading;
+        if (isLoading) {
+            buttonText.textContent = 'Memproses...';
+            loadingSpinner.classList.remove('hidden');
+        } else {
+            buttonText.textContent = 'Tukarkan Sekarang';
+            loadingSpinner.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Logika utama untuk menukarkan kode.
+     */
+    async function handleRedeem() {
+        const inputCode = redeemCodeInput.value.trim().toUpperCase();
+
+        // 1. Validasi Input Dasar
+        if (inputCode.length === 0) {
+            showModal("Input Kosong", "Mohon masukkan kode penukaran Anda.", 'error');
+            return;
+        }
+
+        // Simulasikan proses loading/API call
+        updateButtonState(true);
+
+        // Simulasi penundaan jaringan (misalnya 1-2 detik)
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 1000)); 
+
+        const codeData = VALID_CODES[inputCode];
+        
+        // 2. Cek Kode di Database (Simulasi)
+        if (!codeData) {
+            showResult('Kode tidak valid', 'Kode **' + inputCode + '** tidak ditemukan. Pastikan Anda memasukkannya dengan benar.', 'border-red-500', 'text-red-700', 'text-red-500');
+            updateButtonState(false);
+            showModal("Gagal", "Kode tidak valid atau salah.", 'error');
+            return;
+        }
+
+        // 3. Cek Status Penggunaan (Simulasi)
+        if (codeData.used) {
+            showResult('Kode Sudah Digunakan', 'Kode ini sudah ditukarkan sebelumnya.', 'border-yellow-500', 'text-yellow-700', 'text-yellow-500');
+            updateButtonState(false);
+            showModal("Gagal", "Kode ini sudah digunakan.", 'error');
+            return;
+        }
+
+        // 4. Proses Penukaran Sukses
+        
+        // Tandai kode sebagai sudah digunakan (simulasi update database)
+        // Catatan: Dalam aplikasi nyata, Anda perlu melacak penggunaan untuk setiap pengguna.
+        codeData.used = true;
+
+        showResult('Berhasil!', `Selamat! Anda berhasil menukarkan kode dan mendapatkan hadiah: **${codeData.reward}**. Hadiah telah ditambahkan ke akun Anda.`, 'border-green-500', 'text-green-700', 'text-green-500');
+        updateButtonState(false);
+        showModal("SUKSES!", `Anda mendapatkan: ${codeData.reward}`, 'success');
+
+        // Opsional: Kosongkan input setelah sukses
+        redeemCodeInput.value = '';
+    }
+
+    /**
+     * Menampilkan hasil penukaran di area hasil.
+     * @param {string} title Judul pesan.
+     * @param {string} message Pesan detail.
+     * @param {string} borderColor Kelas Tailwind untuk warna border.
+     * @param {string} titleColor Kelas Tailwind untuk warna judul.
+     * @param {string} messageColor Kelas Tailwind untuk warna teks.
+     */
+    function showResult(title, message, borderColor, titleColor, messageColor) {
+        // Mengganti border dan warna teks
+        resultArea.classList.remove('hidden', 'border-red-500', 'border-yellow-500', 'border-green-500');
+        resultArea.classList.add(borderColor);
+
+        // Memperbarui Judul Status
+        const statusTitle = resultArea.querySelector('h3');
+        statusTitle.textContent = 'Status Penukaran: ' + title;
+        statusTitle.classList.remove('text-red-700', 'text-yellow-700', 'text-green-700');
+        statusTitle.classList.add(titleColor);
+
+        // Memperbarui Pesan Detail
+        // Menggunakan Markdown dasar untuk bold (**teks**)
+        const formattedMessage = message.replace(/\*\*(.*?)\*\*/g, '<span class="font-bold text-indigo-600">$1</span>');
+        resultMessage.innerHTML = formattedMessage;
+        resultMessage.classList.remove('text-red-500', 'text-yellow-500', 'text-green-500');
+        resultMessage.classList.add(messageColor);
+    }
+
+    // Event Listener untuk tombol redeem
+    redeemButton.addEventListener('click', handleRedeem);
+
+    // Event Listener untuk menekan 'Enter' di kolom input
+    redeemCodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            handleRedeem();
+        }
+    });
+
+    // Inisialisasi: Sembunyikan area hasil saat pertama kali dimuat
+    resultArea.classList.add('hidden');
+    
+    // Pastikan input selalu uppercase
+    redeemCodeInput.addEventListener('input', (e) => {
+        e.target.value = e.target.value.toUpperCase();
+    });
+
+</script>
+
+</body>
+</html>
+
